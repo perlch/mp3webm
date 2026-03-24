@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MP3 to WebM Converter</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f0f0f0; margin: 0; }
+        .container { background: white; padding: 2rem; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; width: 350px; }
+        button { margin-top: 1.5rem; padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px; width: 100%; font-weight: bold; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #status { margin-top: 1rem; color: #555; font-size: 0.9rem; }
+        .progress-container { width: 100%; background: #eee; border-radius: 5px; margin-top: 1rem; display: none; overflow: hidden; }
+        #progressBar { width: 0%; height: 10px; background: #28a745; transition: width 0.1s linear; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>MP3 to WebM</h2>
+    <input type="file" id="audioInput" accept="audio/mp3">
+    
+    <div class="progress-container" id="progressWrapper">
+        <div id="progressBar"></div>
+    </div>
+
+    <button id="convertBtn" disabled>Convert & Download</button>
+    <div id="status">Select MP3 file</div>
+</div>
+
+<script>
+    const audioInput = document.getElementById('audioInput');
+    const convertBtn = document.getElementById('convertBtn');
+    const status = document.getElementById('status');
+    const progressWrapper = document.getElementById('progressWrapper');
+    const progressBar = document.getElementById('progressBar');
+
+    audioInput.onchange = () => {
+        if (audioInput.files.length > 0) {
+            convertBtn.disabled = false;
+            status.innerText = "File ready";
+        }
+    };
+
+    convertBtn.onclick = async () => {
+        const file = audioInput.files[0];
+        if (!file) return;
+
+        convertBtn.disabled = true;
+        progressWrapper.style.display = 'block';
+        status.innerText = "Decoding audio...";
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const arrayBuffer = await file.arrayBuffer();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        const duration = audioBuffer.duration;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 1280; 
+        canvas.height = 720;
+        const ctx = canvas.getContext('2d');
+        
+      
+        const stream = canvas.captureStream(30); 
+        const dest = audioCtx.createMediaStreamDestination();
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(dest);
+
+        const combinedStream = new MediaStream([
+            ...stream.getVideoTracks(),
+            ...dest.stream.getAudioTracks()
+        ]);
+
+        const recorder = new MediaRecorder(combinedStream, { 
+            mimeType: 'video/webm;codecs=vp8,opus',
+            videoBitsPerSecond: 2500000 
+        });
+
+        const chunks = [];
+        recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+        
+        recorder.onstop = () => {
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.name.replace('.mp3', '') + '.webm';
+            a.click();
+            
+            status.innerText = "Success! Try uploading this file.";
+            convertBtn.disabled = false;
+            audioCtx.close();
+        };
+
+        recorder.start();
+        source.start(0);
+        
+        const startTime = performance.now();
+        
+        function render() {
+            const now = performance.now();
+            const elapsed = (now - startTime) / 1000;
+            const percent = Math.min((elapsed / duration) * 100, 100);
+            
+            progressBar.style.width = percent + '%';
+            status.innerText = `Encoding: ${Math.floor(percent)}%`;
+
+       
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "white";
+            ctx.font = "30px Arial";
+            ctx.fillText(file.name, 50, 700); 
+
+            if (elapsed < duration) {
+                requestAnimationFrame(render);
+            } else {
+                recorder.stop();
+                source.stop();
+            }
+        }
+
+        render();
+    };
+</script>
+
+</body>
+</html>
